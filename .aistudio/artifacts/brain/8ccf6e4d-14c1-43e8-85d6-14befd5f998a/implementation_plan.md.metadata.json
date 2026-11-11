@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan to fix forward/backward walking physics, add a 360-degree virtual thumb joystick for mobile navigation, and enable touch-drag camera rotation across the 3D viewport.",
+  "updatedAt":  "2026-11-11T05:29:03.697731348Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

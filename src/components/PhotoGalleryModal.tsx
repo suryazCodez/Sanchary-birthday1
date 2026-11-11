@@ -27,48 +27,49 @@ export const PhotoGalleryModal: React.FC<PhotoGalleryModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/90 backdrop-blur-xl">
-      <div className="relative max-w-4xl w-full rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[92vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-5 bg-slate-950/90">
+      <div className="relative max-w-4xl w-full rounded-2xl sm:rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl overflow-hidden flex flex-col sm:flex-row max-h-[90dvh]">
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 z-10 p-2.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer backdrop-blur-md"
+          aria-label="Close Photo Gallery"
+          className="absolute top-3 right-3 z-10 p-2 rounded-full bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Left: High-Res Photo Display with Navigation Arrows */}
-        <div className="relative flex-1 bg-black flex items-center justify-center min-h-[320px] sm:min-h-[440px] overflow-hidden group">
+        <div className="relative flex-1 bg-black flex items-center justify-center min-h-[200px] sm:min-h-[300px] overflow-hidden group">
           <img
             src={currentPhoto.url}
             alt={currentPhoto.title}
-            className="w-full h-full object-contain max-h-[70vh] transition-transform duration-500"
+            className="w-full h-full object-contain max-h-[55dvh] sm:max-h-[82dvh] transition-transform duration-500"
           />
 
           {/* Navigation Arrows */}
           <button
             onClick={handlePrev}
-            className="absolute left-3 p-3 rounded-full bg-slate-900/60 hover:bg-slate-900/90 text-white transition backdrop-blur-md cursor-pointer group-hover:scale-105"
+            className="absolute left-3 p-2.5 rounded-full bg-slate-900/75 hover:bg-slate-900 text-white transition cursor-pointer group-hover:scale-105"
             title="Previous Memory"
           >
-            <ChevronLeft className="w-6 h-6" />
+            <ChevronLeft className="w-5 h-5" />
           </button>
           <button
             onClick={handleNext}
-            className="absolute right-3 p-3 rounded-full bg-slate-900/60 hover:bg-slate-900/90 text-white transition backdrop-blur-md cursor-pointer group-hover:scale-105"
+            className="absolute right-3 p-2.5 rounded-full bg-slate-900/75 hover:bg-slate-900 text-white transition cursor-pointer group-hover:scale-105"
             title="Next Memory"
           >
-            <ChevronRight className="w-6 h-6" />
+            <ChevronRight className="w-5 h-5" />
           </button>
 
           {/* Indicator Counter Badge */}
-          <div className="absolute bottom-3 left-4 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-xs text-white font-mono">
+          <div className="absolute bottom-3 left-4 px-3 py-1 rounded-full bg-black/70 text-xs text-white font-mono">
             {currentIndex + 1} / {MEMORY_PHOTOS.length}
           </div>
         </div>
 
         {/* Right: Caption, Details & Memory Card */}
-        <div className="w-full md:w-80 p-6 flex flex-col justify-between bg-slate-900 border-t md:border-t-0 md:border-l border-slate-800 overflow-y-auto">
+        <div className="w-full sm:w-72 md:w-80 p-4 sm:p-5 flex flex-col justify-between bg-slate-900 border-t sm:border-t-0 sm:border-l border-slate-800 overflow-y-auto">
           <div>
             <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2">
               <Sparkles className="w-3.5 h-3.5" />

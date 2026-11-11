@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { TreasureChest, INITIAL_CHESTS } from '../types/game';
+import { computeFireplaceFlickerState } from '../utils/fireplaceLighting';
 
 export interface InteractiveObjectRef {
   type: 'chest' | 'door' | 'cake' | 'photo' | 'tv' | 'parents';
@@ -17,17 +18,32 @@ export class ProceduralWorld {
   public candleFlames: THREE.Mesh[] = [];
   public candleLights: THREE.PointLight[] = [];
   public fireplaceLight: THREE.PointLight | null = null;
-  public indoorRoomLights: THREE.Light[] = [];
+  public fireplaceBounceLight: THREE.PointLight | null = null;
+  public fireplaceEmberMaterial: THREE.MeshStandardMaterial | null = null;
+  public indoorRoomLights: { light: THREE.PointLight; baseIntensity: number }[] = [];
+  public roomAmbientLevel: number = 1.0;
+  public targetRoomAmbientLevel: number = 1.0;
   public fireplaceFlames: THREE.Mesh[] = [];
   public chimneySmoke: THREE.Points | null = null;
   public balloonGroup: THREE.Group | null = null;
   public tvVideoMesh: THREE.Mesh | null = null;
   public tvVideoElement: HTMLVideoElement | null = null;
+  private tvDirectVideoTexture: THREE.VideoTexture | null = null;
+  private tvCanvas: HTMLCanvasElement | null = null;
+  private tvCtx: CanvasRenderingContext2D | null = null;
+  private tvCanvasTexture: THREE.CanvasTexture | null = null;
+  private starField: THREE.Points | null = null;
+  private starMaterial: THREE.PointsMaterial | null = null;
   public photoMeshes: THREE.Mesh[] = [];
   public momModel: THREE.Group | null = null;
   public dadModel: THREE.Group | null = null;
   public cakeGroup: THREE.Group | null = null;
   public cakeSlice: THREE.Mesh | null = null;
+  public cakeSliceGroup: THREE.Group | null = null;
+  public cakeKnifeGroup: THREE.Group | null = null;
+  public cakeSparkles: THREE.Points | null = null;
+  private cakeCutAnimProgress: number = 0;
+  private isCakeCutCompleted: boolean = false;
   public chestGroups: Map<string, THREE.Group> = new Map();
   public fairyLightsMaterial: THREE.MeshBasicMaterial | null = null;
 
@@ -43,6 +59,7 @@ export class ProceduralWorld {
 
   public async buildWorld() {
     this.setupEnvironmentAndFog();
+    this.buildStarryNightSky();
     this.buildTerrainAndMountains();
     this.buildPineForest();
     this.buildFarmhouseExterior();
@@ -57,61 +74,139 @@ export class ProceduralWorld {
   }
 
   private setupEnvironmentAndFog() {
-    // Winter alpine dusk fog
-    this.scene.background = new THREE.Color(0x131926);
-    this.scene.fog = new THREE.FogExp2(0x151c2c, 0.016);
+    // Deep Alpine Starry Night Sky & Midnight Fog
+    this.scene.background = new THREE.Color(0x040711);
+    this.scene.fog = new THREE.FogExp2(0x060b18, 0.012);
+  }
+
+  private buildStarryNightSky() {
+    // 1. 2,800 Glittering Stars across the Night Sky Hemisphere Dome
+    const starCount = 2800;
+    const starGeo = new THREE.BufferGeometry();
+    const positions = new Float32Array(starCount * 3);
+    const colors = new Float32Array(starCount * 3);
+
+    const palette = [
+      new THREE.Color(0xffffff), // Diamond white
+      new THREE.Color(0xfff4d2), // Warm gold starlight
+      new THREE.Color(0xcce2ff), // Crisp ice blue
+      new THREE.Color(0xffd6e0), // Faint rose star
+    ];
+
+    for (let i = 0; i < starCount; i++) {
+      const i3 = i * 3;
+      // Distribute on a hemisphere dome of radius 115..165
+      const radius = 115 + Math.random() * 50;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(0.08 + Math.random() * 0.92); // Above horizon
+
+      positions[i3] = radius * Math.sin(phi) * Math.cos(theta);
+      positions[i3 + 1] = radius * Math.cos(phi);
+      positions[i3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
+
+      const col = palette[i % palette.length];
+      const brightness = 0.65 + Math.random() * 0.35;
+      colors[i3] = col.r * brightness;
+      colors[i3 + 1] = col.g * brightness;
+      colors[i3 + 2] = col.b * brightness;
+    }
+
+    starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    starGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    this.starMaterial = new THREE.PointsMaterial({
+      size: 0.95,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.92,
+      fog: false,
+      depthWrite: false,
+    });
+
+    this.starField = new THREE.Points(starGeo, this.starMaterial);
+    this.starField.frustumCulled = false;
+    this.scene.add(this.starField);
+
+    // 2. Luminous Full Alpine Moon & Soft Atmospheric Halo high above the peaks
+    const moonGroup = new THREE.Group();
+    moonGroup.position.set(-34, 52, -68);
+
+    const moonMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(4.8, 24, 24),
+      new THREE.MeshBasicMaterial({ color: 0xfef9e7, fog: false })
+    );
+    moonGroup.add(moonMesh);
+
+    const haloMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(8.2, 24, 24),
+      new THREE.MeshBasicMaterial({
+        color: 0x9ec5ff,
+        transparent: true,
+        opacity: 0.16,
+        fog: false,
+        depthWrite: false,
+      })
+    );
+    moonGroup.add(haloMesh);
+
+    this.scene.add(moonGroup);
   }
 
   private setupLighting() {
-    // Cool sky / warm snow bounce hemisphere
-    const hemiLight = new THREE.HemisphereLight(0x94b4db, 0x3d4b5c, 0.65);
+    // Starry Night Sky / Snow Bounce Hemisphere Light
+    const hemiLight = new THREE.HemisphereLight(0x4b6cb7, 0x182848, 0.55);
     hemiLight.position.set(0, 50, 0);
     this.scene.add(hemiLight);
 
-    // Warm low-angle winter sun
-    const sunLight = new THREE.DirectionalLight(0xffecd2, 1.2);
-    sunLight.position.set(-25, 35, 30);
-    sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 2048;
-    sunLight.shadow.mapSize.height = 2048;
-    sunLight.shadow.camera.near = 0.5;
-    sunLight.shadow.camera.far = 120;
-    const d = 40;
-    sunLight.shadow.camera.left = -d;
-    sunLight.shadow.camera.right = d;
-    sunLight.shadow.camera.top = d;
-    sunLight.shadow.camera.bottom = -d;
-    sunLight.shadow.bias = -0.0003;
-    this.scene.add(sunLight);
+    // Cool Silvery-Blue Alpine Moonlight casting crisp shadows on snow
+    const moonLight = new THREE.DirectionalLight(0xa8c8ff, 0.95);
+    moonLight.position.set(-30, 45, -40);
+    moonLight.castShadow = true;
+    moonLight.shadow.mapSize.width = 2048;
+    moonLight.shadow.mapSize.height = 2048;
+    moonLight.shadow.camera.near = 0.5;
+    moonLight.shadow.camera.far = 140;
+    const d = 42;
+    moonLight.shadow.camera.left = -d;
+    moonLight.shadow.camera.right = d;
+    moonLight.shadow.camera.top = d;
+    moonLight.shadow.camera.bottom = -d;
+    moonLight.shadow.bias = -0.0003;
+    this.scene.add(moonLight);
 
-    // Porch warm lantern lights
-    const porchLight1 = new THREE.PointLight(0xffa238, 2.2, 14, 1.5);
+    // Porch warm golden lantern lights (extra inviting against the night sky)
+    const porchLight1 = new THREE.PointLight(0xff9e2c, 2.8, 16, 1.4);
     porchLight1.position.set(1.9, 3.4, 5.6);
     porchLight1.castShadow = true;
     this.scene.add(porchLight1);
 
-    const porchLight2 = new THREE.PointLight(0xffa238, 2.2, 14, 1.5);
+    const porchLight2 = new THREE.PointLight(0xff9e2c, 2.8, 16, 1.4);
     porchLight2.position.set(-1.9, 3.4, 5.6);
     porchLight2.castShadow = true;
     this.scene.add(porchLight2);
 
     // Indoor Dining Table warm pendant lamp (2700K warm glow)
-    const tableLight = new THREE.PointLight(0xffdfa9, 2.4, 16, 1.6);
+    const tableLight = new THREE.PointLight(0xffdfa9, 2.5, 16, 1.6);
     tableLight.position.set(0, 4.2, -3.2);
     tableLight.castShadow = true;
     this.scene.add(tableLight);
-    this.indoorRoomLights.push(tableLight);
+    this.indoorRoomLights.push({ light: tableLight, baseIntensity: 2.5 });
 
     // Living Room ambient warm wash
-    const livingFill = new THREE.PointLight(0xffc585, 1.4, 18, 1.8);
+    const livingFill = new THREE.PointLight(0xffc585, 1.5, 18, 1.8);
     livingFill.position.set(-2.5, 3.8, -7.5);
     this.scene.add(livingFill);
-    this.indoorRoomLights.push(livingFill);
+    this.indoorRoomLights.push({ light: livingFill, baseIntensity: 1.5 });
 
-    // Fireplace dancing amber hearth light
-    this.fireplaceLight = new THREE.PointLight(0xff5500, 3.2, 12, 1.4);
-    this.fireplaceLight.position.set(-5.1, 1.2, -4.5);
+    // Primary Fireplace dancing hearth light (placed just outside firebox opening so it illuminates the room)
+    this.fireplaceLight = new THREE.PointLight(0xff6a1a, 3.2, 15, 1.35);
+    this.fireplaceLight.position.set(-3.85, 1.45, -4.5);
     this.scene.add(this.fireplaceLight);
+
+    // Secondary Fireplace warm bounce light on ceiling beams, mantelpiece & Turkish rug
+    this.fireplaceBounceLight = new THREE.PointLight(0xff8c3b, 1.1, 14, 1.6);
+    this.fireplaceBounceLight.position.set(-3.1, 2.35, -4.5);
+    this.scene.add(this.fireplaceBounceLight);
   }
 
   private buildTerrainAndMountains() {
@@ -478,48 +573,86 @@ export class ProceduralWorld {
     rug.receiveShadow = true;
     interior.add(rug);
 
-    // 2. Stone Fireplace & Chimney Hearth
-    const hearthStoneMat = new THREE.MeshStandardMaterial({ color: 0x3d3d3d, roughness: 0.9 });
-    const fireplaceHearth = new THREE.Mesh(new THREE.BoxGeometry(2.4, 3.2, 1.2), hearthStoneMat);
-    fireplaceHearth.position.set(-5.1, 2.2, -4.5);
+    // 2. Stone Fireplace & Chimney Hearth (anchored flush along the Left Wall X = -5.6)
+    const hearthStoneMat = new THREE.MeshStandardMaterial({ color: 0x43464b, roughness: 0.88 });
+    const fireplaceHearth = new THREE.Mesh(new THREE.BoxGeometry(1.15, 3.6, 2.6), hearthStoneMat);
+    fireplaceHearth.position.set(-5.05, 2.4, -4.5);
+    fireplaceHearth.receiveShadow = true;
     interior.add(fireplaceHearth);
 
-    // Firebox opening
+    // Raised Stone Hearth Apron in front of the fire
+    const hearthApron = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.16, 2.8), hearthStoneMat);
+    hearthApron.position.set(-4.65, 0.88, -4.5);
+    hearthApron.receiveShadow = true;
+    interior.add(hearthApron);
+
+    // Firebox recessed dark backplate (behind the logs & flames at X = -4.46)
     const firebox = new THREE.Mesh(
-      new THREE.BoxGeometry(1.4, 1.5, 0.8),
-      new THREE.MeshBasicMaterial({ color: 0x111111 })
+      new THREE.BoxGeometry(0.14, 1.55, 1.75),
+      new THREE.MeshBasicMaterial({ color: 0x120c09 })
     );
-    firebox.position.set(-4.5, 1.4, -4.5);
+    firebox.position.set(-4.46, 1.68, -4.5);
     interior.add(firebox);
 
-    // Burning Logs
-    const logGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.9, 6);
-    const fireLogMat = new THREE.MeshStandardMaterial({ color: 0x221100, roughness: 0.9 });
+    // Burning Logs (oriented along Z inside the open hearth)
+    const logGeo = new THREE.CylinderGeometry(0.11, 0.12, 1.15, 8);
+    const fireLogMat = new THREE.MeshStandardMaterial({
+      color: 0x2a1508,
+      emissive: 0x3d1302,
+      emissiveIntensity: 0.45,
+      roughness: 0.9,
+    });
     const fl1 = new THREE.Mesh(logGeo, fireLogMat);
-    fl1.position.set(-4.5, 1.0, -4.6);
-    fl1.rotation.z = 0.5;
+    fl1.position.set(-4.18, 1.12, -4.5);
+    fl1.rotation.x = Math.PI / 2 - 0.18;
+    fl1.rotation.z = 0.15;
     interior.add(fl1);
 
     const fl2 = new THREE.Mesh(logGeo, fireLogMat);
-    fl2.position.set(-4.5, 1.0, -4.4);
-    fl2.rotation.z = -0.5;
+    fl2.position.set(-4.08, 1.12, -4.5);
+    fl2.rotation.x = Math.PI / 2 + 0.2;
+    fl2.rotation.z = -0.15;
     interior.add(fl2);
 
-    // Animated Fire flame cones
-    const flameMat = new THREE.MeshBasicMaterial({ color: 0xff6600 });
-    for (let f = 0; f < 4; f++) {
-      const flame = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.65, 5), flameMat);
-      flame.position.set(-4.5 + (Math.random() - 0.5) * 0.4, 1.2, -4.5 + (Math.random() - 0.5) * 0.3);
+    // Glowing Ember Bed beneath the logs
+    this.fireplaceEmberMaterial = new THREE.MeshStandardMaterial({
+      color: 0xff3b00,
+      emissive: 0xff4500,
+      emissiveIntensity: 1.8,
+      roughness: 0.6,
+    });
+    const emberBed = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.38, 0.48, 0.14, 14),
+      this.fireplaceEmberMaterial
+    );
+    emberBed.scale.set(0.85, 1, 1.55);
+    emberBed.position.set(-4.15, 1.02, -4.5);
+    interior.add(emberBed);
+
+    // Animated Multi-Layered Fire Flame Cones (outer amber + inner bright gold core)
+    const outerFlameMat = new THREE.MeshBasicMaterial({ color: 0xff5a00 });
+    const innerFlameMat = new THREE.MeshBasicMaterial({ color: 0xffe066 });
+    const flameOffsets: [number, number, number, number][] = [
+      [-4.14, 1.48, -4.5, 1.15],
+      [-4.16, 1.4, -4.18, 0.95],
+      [-4.16, 1.42, -4.82, 0.98],
+      [-4.06, 1.36, -4.34, 0.88],
+      [-4.06, 1.38, -4.66, 0.9],
+    ];
+    flameOffsets.forEach(([fx, fy, fz, scale], idx) => {
+      const mat = idx % 2 === 0 ? outerFlameMat : innerFlameMat;
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(0.18 * scale, 0.72 * scale, 8), mat);
+      flame.position.set(fx, fy, fz);
       interior.add(flame);
       this.fireplaceFlames.push(flame);
-    }
+    });
 
     // Wooden Fireplace Mantelpiece with Birthday Garland
     const mantel = new THREE.Mesh(
-      new THREE.BoxGeometry(0.4, 0.25, 2.6),
-      new THREE.MeshStandardMaterial({ color: 0x4a2c11, roughness: 0.6 })
+      new THREE.BoxGeometry(0.45, 0.24, 2.8),
+      new THREE.MeshStandardMaterial({ color: 0x5c3616, roughness: 0.55 })
     );
-    mantel.position.set(-3.85, 3.0, -4.5);
+    mantel.position.set(-4.35, 2.65, -4.5);
     interior.add(mantel);
 
     // 3. Dining Table & Chairs
@@ -690,13 +823,51 @@ export class ProceduralWorld {
       this.cakeGroup.add(berry);
     }
 
-    // Interactive Cut Slice (displaces when cut)
-    const sliceGeo = new THREE.CylinderGeometry(0.66, 0.66, 0.41, 6, 1, false, 0, Math.PI / 4);
-    const sliceMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.6 });
-    this.cakeSlice = new THREE.Mesh(sliceGeo, sliceMat);
-    this.cakeSlice.position.set(0, 0.72, 0);
-    this.cakeSlice.visible = false; // appears displaced when cake is cut
-    this.cakeGroup.add(this.cakeSlice);
+    // Interactive Multi-Layered Cut Wedge (displaces smoothly onto side plate when cut)
+    this.cakeSliceGroup = new THREE.Group();
+    this.cakeSliceGroup.position.set(0, 0, 0);
+    this.cakeSliceGroup.visible = false;
+
+    const sliceOuterMat = new THREE.MeshStandardMaterial({ color: 0xfcb8d2, roughness: 0.42 });
+    const sliceSpongeMat = new THREE.MeshStandardMaterial({ color: 0x5c2c16, roughness: 0.65 });
+    const sliceCreamMat = new THREE.MeshStandardMaterial({ color: 0xfff5f8, roughness: 0.35 });
+
+    const wedgeOuter = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.66, 0.66, 0.41, 12, 1, false, 0, Math.PI / 4),
+      sliceOuterMat
+    );
+    wedgeOuter.position.y = 0.72;
+    this.cakeSliceGroup.add(wedgeOuter);
+    this.cakeSlice = wedgeOuter;
+
+    // Inner chocolate sponge & berry cream layers visible on the cut wedge
+    const spongeLayer1 = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.64, 0.64, 0.14, 10, 1, false, -0.02, Math.PI / 4 + 0.04),
+      sliceSpongeMat
+    );
+    spongeLayer1.position.y = 0.62;
+    this.cakeSliceGroup.add(spongeLayer1);
+
+    const creamFilling = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.65, 0.65, 0.08, 10, 1, false, -0.02, Math.PI / 4 + 0.04),
+      sliceCreamMat
+    );
+    creamFilling.position.y = 0.73;
+    this.cakeSliceGroup.add(creamFilling);
+
+    const wedgeCherry = new THREE.Mesh(berryGeo, berryMat);
+    wedgeCherry.position.set(0.36, 0.96, 0.15);
+    this.cakeSliceGroup.add(wedgeCherry);
+
+    this.cakeGroup.add(this.cakeSliceGroup);
+
+    // Side porcelain dessert plate waiting for Sanchary's first slice
+    const sidePlate = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.42, 0.36, 0.04, 20),
+      standMat
+    );
+    sidePlate.position.set(1.38, 0.02, 0.55);
+    this.cakeGroup.add(sidePlate);
 
     // 5 Birthday Candles with glowing flames
     const candleGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.35, 8);
@@ -732,13 +903,60 @@ export class ProceduralWorld {
       }
     });
 
-    // Silver Cake Knife resting beside cake
+    // Composite 3D Silver Pastry Knife (Blade + Brass Bolster + Pearl Handle)
+    this.cakeKnifeGroup = new THREE.Group();
     const knifeBlade = new THREE.Mesh(
-      new THREE.BoxGeometry(0.04, 0.015, 0.8),
-      new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.95, roughness: 0.1 })
+      new THREE.BoxGeometry(0.035, 0.07, 0.62),
+      new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.92, roughness: 0.12 })
     );
-    knifeBlade.position.set(1.1, 0.03, 0);
-    this.cakeGroup.add(knifeBlade);
+    knifeBlade.position.set(0, 0, -0.15);
+    this.cakeKnifeGroup.add(knifeBlade);
+
+    const knifeBolster = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.035, 0.035, 0.06, 10),
+      new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.85, roughness: 0.22 })
+    );
+    knifeBolster.rotation.x = Math.PI / 2;
+    knifeBolster.position.set(0, 0, 0.18);
+    this.cakeKnifeGroup.add(knifeBolster);
+
+    const knifeHandle = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.03, 0.038, 0.32, 12),
+      new THREE.MeshStandardMaterial({ color: 0xfff8eb, roughness: 0.3, metalness: 0.1 })
+    );
+    knifeHandle.rotation.x = Math.PI / 2;
+    knifeHandle.position.set(0, 0, 0.36);
+    this.cakeKnifeGroup.add(knifeHandle);
+
+    this.cakeKnifeGroup.position.set(1.12, 0.06, 0);
+    this.cakeKnifeGroup.rotation.y = -0.35;
+    this.cakeGroup.add(this.cakeKnifeGroup);
+
+    // 3D Golden Sparkle Burst Particles above cake when sliced
+    const sparkleCount = 36;
+    const sparkleGeo = new THREE.BufferGeometry();
+    const sparklePos = new Float32Array(sparkleCount * 3);
+    for (let s = 0; s < sparkleCount; s++) {
+      const ang = (s / sparkleCount) * Math.PI * 2;
+      const r = 0.25 + (s % 5) * 0.14;
+      sparklePos[s * 3] = Math.cos(ang) * r;
+      sparklePos[s * 3 + 1] = 0.85 + (s % 4) * 0.18;
+      sparklePos[s * 3 + 2] = Math.sin(ang) * r;
+    }
+    sparkleGeo.setAttribute('position', new THREE.BufferAttribute(sparklePos, 3));
+    this.cakeSparkles = new THREE.Points(
+      sparkleGeo,
+      new THREE.PointsMaterial({
+        color: 0xffdf79,
+        size: 0.09,
+        transparent: true,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+    this.cakeSparkles.visible = false;
+    this.cakeGroup.add(this.cakeSparkles);
 
     this.interactiveObjects.push({
       type: 'cake',
@@ -835,59 +1053,124 @@ export class ProceduralWorld {
   }
 
   private buildVirtualTV() {
-    // Media console table
-    const tvStand = new THREE.Mesh(
-      new THREE.BoxGeometry(3.6, 1.0, 1.0),
-      new THREE.MeshStandardMaterial({ color: 0x2c1d11, roughness: 0.7 })
-    );
-    tvStand.position.set(5.3, 1.3, -4.5);
+    const tvGroup = new THREE.Group();
+
+    // 1. Designer Walnut Media Console Table with Brass Trim
+    const consoleMat = new THREE.MeshStandardMaterial({ color: 0x2c1d11, roughness: 0.55 });
+    const brassMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.85, roughness: 0.25 });
+
+    const tvStand = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.85, 0.95), consoleMat);
+    tvStand.position.set(5.3, 1.35, -4.5);
     tvStand.rotation.y = -Math.PI / 2;
-    this.scene.add(tvStand);
+    tvStand.castShadow = true;
+    tvStand.receiveShadow = true;
+    tvGroup.add(tvStand);
 
-    // TV Chassis
-    const tvFrame = new THREE.Mesh(
-      new THREE.BoxGeometry(3.2, 2.0, 0.12),
-      new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.2, metalness: 0.8 })
+    const brassTrim = new THREE.Mesh(new THREE.BoxGeometry(3.84, 0.06, 0.98), brassMat);
+    brassTrim.position.set(5.3, 1.78, -4.5);
+    brassTrim.rotation.y = -Math.PI / 2;
+    tvGroup.add(brassTrim);
+
+    // Sleek Acoustic Soundbar below TV
+    const soundbar = new THREE.Mesh(
+      new THREE.BoxGeometry(1.8, 0.12, 0.16),
+      new THREE.MeshStandardMaterial({ color: 0x1a1a1d, roughness: 0.3, metalness: 0.7 })
     );
-    tvFrame.position.set(5.5, 2.8, -4.5);
-    tvFrame.rotation.y = -Math.PI / 2;
-    this.scene.add(tvFrame);
+    soundbar.position.set(5.25, 1.88, -4.5);
+    soundbar.rotation.y = -Math.PI / 2;
+    tvGroup.add(soundbar);
 
-    // TV Screen with Video Texture from `/assets/birthday_memory_tv.mp4`
-    const screenGeo = new THREE.PlaneGeometry(2.9, 1.7);
+    // 2. Aesthetic "Frame TV" Outer Bezel & Inner Matte Gallery Border
+    const tvOuterBezel = new THREE.Mesh(
+      new THREE.BoxGeometry(3.45, 2.15, 0.1),
+      new THREE.MeshStandardMaterial({ color: 0x3b2313, roughness: 0.35, metalness: 0.4 })
+    );
+    tvOuterBezel.position.set(5.52, 2.95, -4.5);
+    tvOuterBezel.rotation.y = -Math.PI / 2;
+    tvGroup.add(tvOuterBezel);
+
+    const tvGoldInnerRim = new THREE.Mesh(
+      new THREE.BoxGeometry(3.32, 2.02, 0.12),
+      brassMat
+    );
+    tvGoldInnerRim.position.set(5.5, 2.95, -4.5);
+    tvGoldInnerRim.rotation.y = -Math.PI / 2;
+    tvGroup.add(tvGoldInnerRim);
+
+    // 3. Video Element (Transcoded H.264 yuv420p for 100% browser compatibility + low volume)
     this.tvVideoElement = document.createElement('video');
-    this.tvVideoElement.src = '/assets/birthday_memory_tv.mp4';
+    this.tvVideoElement.src = '/assets/aistudio/sanchary_tv_h264.mp4';
     this.tvVideoElement.loop = true;
-    this.tvVideoElement.muted = true; // Auto-play muted; user can toggle sound
+    this.tvVideoElement.volume = 0.14; // Low, gentle volume as requested
+    this.tvVideoElement.muted = true; // Starts muted for autoplay policy; unmuted on user start
     this.tvVideoElement.playsInline = true;
-    this.tvVideoElement.crossOrigin = 'anonymous';
+    this.tvVideoElement.setAttribute('playsinline', 'true');
+    this.tvVideoElement.setAttribute('webkit-playsinline', 'true');
+    this.tvVideoElement.preload = 'auto';
+    this.tvVideoElement.load();
     this.tvVideoElement.play().catch(() => {
-      // User gesture needed; will start on first click
+      // Will start on first user gesture
     });
 
-    const videoTex = new THREE.VideoTexture(this.tvVideoElement);
-    videoTex.colorSpace = THREE.SRGBColorSpace;
-    videoTex.minFilter = THREE.LinearFilter;
-    videoTex.magFilter = THREE.LinearFilter;
+    // 4. Aesthetic Widescreen Compositor Canvas + Direct Hardware VideoTexture
+    this.tvCanvas = document.createElement('canvas');
+    this.tvCanvas.width = 960;
+    this.tvCanvas.height = 540;
+    this.tvCtx = this.tvCanvas.getContext('2d');
 
+    this.tvCanvasTexture = new THREE.CanvasTexture(this.tvCanvas);
+    this.tvCanvasTexture.colorSpace = THREE.SRGBColorSpace;
+    this.tvCanvasTexture.minFilter = THREE.LinearFilter;
+    this.tvCanvasTexture.magFilter = THREE.LinearFilter;
+
+    const screenGeo = new THREE.PlaneGeometry(3.2, 1.88);
     const screenMat = new THREE.MeshBasicMaterial({
-      map: videoTex,
+      map: this.tvCanvasTexture,
     });
 
     this.tvVideoMesh = new THREE.Mesh(screenGeo, screenMat);
-    this.tvVideoMesh.position.set(5.43, 2.8, -4.5);
+    this.tvVideoMesh.position.set(5.43, 2.95, -4.5);
     this.tvVideoMesh.rotation.y = -Math.PI / 2;
-    this.scene.add(this.tvVideoMesh);
+    tvGroup.add(this.tvVideoMesh);
 
-    // Subtle TV glow into room
-    const tvLight = new THREE.PointLight(0xaad4ff, 1.2, 7, 2);
-    tvLight.position.set(4.8, 2.8, -4.5);
-    this.scene.add(tvLight);
+    // Direct Hardware-Accelerated VideoTexture Plane (9:16 Portrait Frame mounted on the TV)
+    this.tvDirectVideoTexture = new THREE.VideoTexture(this.tvVideoElement);
+    this.tvDirectVideoTexture.colorSpace = THREE.SRGBColorSpace;
+    this.tvDirectVideoTexture.minFilter = THREE.LinearFilter;
+    this.tvDirectVideoTexture.magFilter = THREE.LinearFilter;
+
+    const portraitFrameRim = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.04, 1.78),
+      new THREE.MeshBasicMaterial({ color: 0xe2b877 })
+    );
+    portraitFrameRim.position.set(5.415, 2.95, -4.12);
+    portraitFrameRim.rotation.y = -Math.PI / 2;
+    tvGroup.add(portraitFrameRim);
+
+    const directVideoPlane = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.98, 1.72),
+      new THREE.MeshBasicMaterial({ map: this.tvDirectVideoTexture })
+    );
+    directVideoPlane.position.set(5.405, 2.95, -4.12);
+    directVideoPlane.rotation.y = -Math.PI / 2;
+    tvGroup.add(directVideoPlane);
+
+    // 5. Warm Ambilight Backlight & Living Area Screen Glow
+    const tvLight = new THREE.PointLight(0xffd299, 1.45, 8, 1.8);
+    tvLight.position.set(4.8, 2.95, -4.5);
+    tvGroup.add(tvLight);
+
+    this.scene.add(tvGroup);
 
     this.interactiveObjects.push({
       type: 'tv',
       mesh: this.tvVideoMesh,
-      prompt: 'Click to Toggle TV Sound / Fullscreen Video Memory',
+      prompt: 'Click to Open Aesthetic TV View / Adjust Volume',
+    });
+    this.interactiveObjects.push({
+      type: 'tv',
+      mesh: directVideoPlane,
+      prompt: 'Click to Open Aesthetic TV View / Adjust Volume',
     });
   }
 
@@ -1089,29 +1372,95 @@ export class ProceduralWorld {
   }
 
   public dimRoomLights() {
-    this.indoorRoomLights.forEach(l => {
-      l.intensity *= 0.35; // Cozy dimming for birthday cake moment
-    });
+    this.setRoomAmbientLevel(0.35);
+  }
+
+  public setRoomAmbientLevel(level: number) {
+    this.targetRoomAmbientLevel = Math.max(0.2, Math.min(1.0, level));
     if (this.fairyLightsMaterial) {
-      this.fairyLightsMaterial.color.setHex(0xffaa44); // warmer glow
+      this.fairyLightsMaterial.color.setHex(this.targetRoomAmbientLevel < 0.6 ? 0xffaa44 : 0xffe099);
+    }
+  }
+
+  public setCakeSlicingProgress(normalizedProgress: number) {
+    if (!this.cakeKnifeGroup) return;
+    const p = Math.max(0, Math.min(1, normalizedProgress));
+    // Hover knife over top tier and saw gently downward along the wedge seam
+    const cutAngle = p < 0.5 ? 0.35 : 0.78;
+    const localProgress = p < 0.5 ? p * 2 : (p - 0.5) * 2;
+    this.cakeKnifeGroup.position.set(
+      Math.cos(cutAngle) * (0.12 + localProgress * 0.42),
+      0.98 - localProgress * 0.22,
+      Math.sin(cutAngle) * (0.12 + localProgress * 0.42)
+    );
+    this.cakeKnifeGroup.rotation.set(0.32, -cutAngle, 0);
+    if (this.cakeSparkles && p > 0.05) {
+      this.cakeSparkles.visible = true;
     }
   }
 
   public cutCakeVisual() {
-    if (this.cakeSlice) {
-      this.cakeSlice.visible = true;
-      this.cakeSlice.position.set(0.3, 0.72, 0.3); // slide cake slice out
+    this.isCakeCutCompleted = true;
+    if (this.cakeSliceGroup) {
+      this.cakeSliceGroup.visible = true;
+      this.cakeSliceGroup.position.set(0.38, -0.02, 0.28);
+    }
+    if (this.cakeKnifeGroup) {
+      this.cakeKnifeGroup.position.set(1.08, 0.08, -0.25);
+      this.cakeKnifeGroup.rotation.set(0, -0.45, 0);
+    }
+    if (this.cakeSparkles) {
+      this.cakeSparkles.visible = true;
     }
   }
 
   public update(delta: number, elapsed: number) {
-    // 1. Fireplace flame flickering
-    if (this.fireplaceLight) {
-      this.fireplaceLight.intensity = 2.8 + Math.sin(elapsed * 18.0) * 0.6 + Math.cos(elapsed * 24.0) * 0.4;
+    // 0. Animate 3D cake wedge sliding out & golden sparkle burst when cut
+    if (this.isCakeCutCompleted && this.cakeSliceGroup) {
+      this.cakeCutAnimProgress = Math.min(1, this.cakeCutAnimProgress + delta * 1.8);
+      const ease = 1 - Math.pow(1 - this.cakeCutAnimProgress, 3);
+      this.cakeSliceGroup.position.set(0.18 + ease * 0.38, -ease * 0.04, 0.12 + ease * 0.24);
     }
+    if (this.cakeSparkles && this.cakeSparkles.visible) {
+      this.cakeSparkles.rotation.y += delta * 1.4;
+      this.cakeSparkles.position.y = Math.sin(elapsed * 3.5) * 0.06;
+    }
+
+    // 1. Smoothly damp room ambient lighting state & compute reactive fireplace flicker
+    const ambientDamp = 1 - Math.exp(-delta * 3.5);
+    this.roomAmbientLevel += (this.targetRoomAmbientLevel - this.roomAmbientLevel) * ambientDamp;
+    this.indoorRoomLights.forEach(({ light, baseIntensity }) => {
+      light.intensity = baseIntensity * this.roomAmbientLevel;
+    });
+
+    const flicker = computeFireplaceFlickerState(elapsed, this.roomAmbientLevel);
+    if (this.fireplaceLight) {
+      this.fireplaceLight.intensity = flicker.primaryIntensity;
+      this.fireplaceLight.distance = flicker.lightRange;
+      this.fireplaceLight.color.setRGB(flicker.colorR, flicker.colorG, flicker.colorB);
+      this.fireplaceLight.position.set(
+        -3.85 + flicker.offsetX,
+        1.45 + flicker.offsetY,
+        -4.5 + flicker.offsetZ
+      );
+    }
+    if (this.fireplaceBounceLight) {
+      this.fireplaceBounceLight.intensity = flicker.bounceIntensity;
+      this.fireplaceBounceLight.color.setRGB(
+        1.0,
+        Math.min(0.75, flicker.colorG + 0.08),
+        Math.min(0.32, flicker.colorB + 0.05)
+      );
+    }
+    if (this.fireplaceEmberMaterial) {
+      this.fireplaceEmberMaterial.emissiveIntensity = 0.85 + flicker.emberGlow * 1.35;
+    }
+
     this.fireplaceFlames.forEach((flame, i) => {
-      flame.scale.y = 0.8 + Math.sin(elapsed * 15.0 + i) * 0.35;
-      flame.scale.x = 0.9 + Math.cos(elapsed * 12.0 + i) * 0.2;
+      const boost = 0.85 + flicker.emberGlow * 0.45;
+      flame.scale.y = boost + Math.sin(elapsed * 13.0 + i * 1.4) * 0.25;
+      flame.scale.x = 0.9 + Math.cos(elapsed * 10.5 + i * 1.1) * 0.16;
+      flame.rotation.z = Math.sin(elapsed * 8.2 + i) * 0.08;
     });
 
     // 2. Candle flame dancing
@@ -1164,12 +1513,119 @@ export class ProceduralWorld {
       this.dadModel.position.y = Math.sin(elapsed * 4.0) * 0.04;
       this.momModel.position.y = Math.sin(elapsed * 4.0 + 1.2) * 0.04;
     }
+
+    // 7. Gentle starlight shimmer in the night sky
+    if (this.starMaterial) {
+      this.starMaterial.opacity = 0.82 + Math.sin(elapsed * 2.2) * 0.14;
+    }
+
+    // 8. Render aesthetic Frame TV canvas & update direct VideoTexture
+    this.renderTvCanvas(elapsed);
+    if (this.tvDirectVideoTexture && this.tvVideoElement && this.tvVideoElement.readyState >= 2) {
+      this.tvDirectVideoTexture.needsUpdate = true;
+    }
+  }
+
+  private renderTvCanvas(elapsed: number) {
+    if (!this.tvCtx || !this.tvCanvas || !this.tvCanvasTexture) return;
+    const ctx = this.tvCtx;
+    const w = this.tvCanvas.width;
+    const h = this.tvCanvas.height;
+
+    // Warm dark ambient gallery background
+    const grad = ctx.createLinearGradient(0, 0, w, h);
+    grad.addColorStop(0, '#16110e');
+    grad.addColorStop(0.5, '#241a14');
+    grad.addColorStop(1, '#120f16');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    const vid = this.tvVideoElement;
+    if (vid && vid.readyState >= 2) {
+      // Draw soft darkened ambient background echo across the screen
+      ctx.save();
+      ctx.globalAlpha = 0.25;
+      ctx.drawImage(vid, 0, -h * 0.3, w, h * 1.6);
+      ctx.restore();
+    }
+
+    // Dark vignette scrim
+    const vignette = ctx.createRadialGradient(w * 0.58, h * 0.5, 90, w * 0.5, h * 0.5, w * 0.65);
+    vignette.addColorStop(0, 'rgba(18, 13, 10, 0.2)');
+    vignette.addColorStop(1, 'rgba(12, 9, 8, 0.9)');
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, w, h);
+
+    // Aesthetic Left-Side Gallery Typography & Audio Wave Indicator
+    ctx.fillStyle = '#e2b877';
+    ctx.font = '600 15px "Plus Jakarta Sans", sans-serif';
+    ctx.fillText('LIVING ROOM CINEMA · CHALET TV', 48, 150);
+
+    ctx.fillStyle = '#fdf4e7';
+    ctx.font = 'bold 40px "Cormorant Garamond", serif';
+    ctx.fillText("Sanchary's", 48, 205);
+    ctx.fillText('Golden Moments', 48, 250);
+
+    ctx.fillStyle = 'rgba(253, 244, 231, 0.72)';
+    ctx.font = '400 16px "Plus Jakarta Sans", sans-serif';
+    ctx.fillText('Acoustic guitar memory reel', 48, 292);
+    ctx.fillText('playing softly in the background', 48, 316);
+
+    // Subtle animated acoustic equalizer bars
+    const isPlayingAudio = vid && !vid.paused && !vid.muted;
+    for (let i = 0; i < 12; i++) {
+      const barH = isPlayingAudio
+        ? 8 + Math.abs(Math.sin(elapsed * 5.5 + i * 0.7)) * 22
+        : 6;
+      ctx.fillStyle = isPlayingAudio ? '#f59e0b' : 'rgba(226, 184, 119, 0.35)';
+      ctx.fillRect(48 + i * 12, 375 - barH, 6, barH);
+    }
+
+    ctx.fillStyle = '#cbd5e1';
+    ctx.font = '500 13px "Plus Jakarta Sans", sans-serif';
+    ctx.fillText(
+      isPlayingAudio
+        ? ` Ambient Volume: ${Math.round((vid?.volume ?? 0.14) * 100)}% (Low & Cozy)`
+        : ' Tap TV to adjust volume / view up close',
+      48,
+      405
+    );
+
+    // Subtle outer gallery border
+    ctx.strokeStyle = 'rgba(226, 184, 119, 0.28)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(14, 14, w - 28, h - 28);
+
+    this.tvCanvasTexture.needsUpdate = true;
+  }
+
+  public hasUserInteracted: boolean = false;
+
+  public syncTvAmbientVolume(isInsideHouse: boolean, isGlobalMuted: boolean, customVolume: number = 0.14) {
+    if (!this.tvVideoElement) return;
+    if (isGlobalMuted || !this.hasUserInteracted) {
+      this.tvVideoElement.muted = true;
+    } else {
+      this.tvVideoElement.muted = false;
+      // Soft low volume indoors, whisper-quiet when outside on the snowy trail
+      const targetVol = isInsideHouse ? customVolume : Math.min(0.04, customVolume * 0.3);
+      this.tvVideoElement.volume = Math.max(0, Math.min(1, targetVol));
+    }
+    if (this.tvVideoElement.paused) {
+      this.tvVideoElement.play().catch(() => {});
+    }
   }
 
   public dispose() {
     if (this.tvVideoElement) {
       this.tvVideoElement.pause();
       this.tvVideoElement.src = '';
+    }
+    if (this.tvDirectVideoTexture) {
+      this.tvDirectVideoTexture.dispose();
+    }
+    if (this.tvCanvasTexture) {
+      this.tvCanvasTexture.dispose();
     }
   }
 }

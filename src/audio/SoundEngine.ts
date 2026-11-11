@@ -419,6 +419,68 @@ class SoundEngine {
     });
   }
 
+  public playKnifeSliceDrag(progress: number = 0.5) {
+    if (!this.ctx || this.isMuted || !this.masterGain) return;
+    const now = this.ctx.currentTime;
+
+    // Soft velvety pastry-knife swish + subtle sugar crystal shimmer
+    const bufferSize = Math.floor(this.ctx.sampleRate * 0.055);
+    const noise = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = noise.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.sin((i / bufferSize) * Math.PI);
+    }
+    const noiseSource = this.ctx.createBufferSource();
+    noiseSource.buffer = noise;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(950 + progress * 900, now);
+    filter.Q.setValueAtTime(3.2, now);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.08, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+
+    noiseSource.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+    noiseSource.start(now);
+
+    // Subtle harmonic sparkle ping
+    const osc = this.ctx.createOscillator();
+    const oscGain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(580 + progress * 520, now);
+    oscGain.gain.setValueAtTime(0.035, now);
+    oscGain.gain.exponentialRampToValueAtTime(0.0005, now + 0.06);
+
+    osc.connect(oscGain);
+    oscGain.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.065);
+  }
+
+  public playStrokeComplete(strokeIndex: number) {
+    if (!this.ctx || this.isMuted || !this.masterGain) return;
+    const now = this.ctx.currentTime;
+    const baseFreq = strokeIndex === 0 ? 659.25 : 880.0; // E5 then A5
+    [baseFreq, baseFreq * 1.25, baseFreq * 1.5].forEach((freq, idx) => {
+      if (!this.ctx || !this.masterGain) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      const t = now + idx * 0.055;
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.11, t);
+      gain.gain.exponentialRampToValueAtTime(0.0005, t + 0.28);
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(t);
+      osc.stop(t + 0.3);
+    });
+  }
+
   public playCakeCutSlice() {
     if (!this.ctx || this.isMuted || !this.masterGain) return;
     const now = this.ctx.currentTime;
