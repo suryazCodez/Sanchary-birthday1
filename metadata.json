@@ -1,0 +1,8 @@
+{
+  "name": "Happy Birthday Sanchary - Cozy Alpine Mountain Celebration",
+  "description": "An interactive, cinematic 3D gamified winter journey into a cozy mountain farmhouse to celebrate Sanchary's birthday with heartfelt hidden notes, photo memories, fireplace warmth, and candle-blowing celebration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
